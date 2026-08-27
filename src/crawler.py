@@ -58,7 +58,12 @@ async def fetch_domain(client: httpx.AsyncClient, domain: str) -> RawSite:
         try:
             resp = await _fetch_once(client, url)
         except Exception as exc:  # noqa: BLE001 - vrem sa incercam urmatorul candidat oricum
-            last_error = str(exc)
+            # DECIZIE: multe exceptii httpx (SSL, connection refused) au
+            # str(exc) gol - fara tipul exceptiei, ajungi cu "unknown error"
+            # in log, ceea ce nu-ti spune nimic util cand vrei sa explici in
+            # README de ce anume au esuat cateva domenii constant.
+            detail = str(exc) or repr(exc)
+            last_error = f"{type(exc).__name__}: {detail}"
             continue
 
         if resp.status_code >= 500:
