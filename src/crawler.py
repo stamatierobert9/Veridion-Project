@@ -87,6 +87,16 @@ async def fetch_domain(client: httpx.AsyncClient, domain: str) -> RawSite:
     return RawSite(domain=domain, error=last_error or "unknown error", fetch_ms=int((time.monotonic() - start) * 1000))
 
 
+# Plasa de siguranta: indiferent cate retry-uri/candidati incearca
+# fetch_domain() intern, un singur domeniu nu are voie sa blocheze la
+# infinit tot batch-ul. httpx.Timeout limiteaza fiecare request individual,
+# dar am vazut in practica (vezi README, debate topic #1) ca unele gazde
+# raspund suficient de "lent si ciudat" incat suma retry-urilor + candidatilor
+# (https -> www -> http) poate depasi mult timeout-ul per-request. De-aia
+# punem si un wait_for global per domeniu.
+HARD_TIMEOUT_PER_DOMAIN_SECONDS = config.HTTP_TIMEOUT_SECONDS * 4
+
+
 async def fetch_all(domains: list[str]) -> list[RawSite]:
     limits = httpx.Limits(max_connections=config.MAX_CONCURRENT_REQUESTS, max_keepalive_connections=config.MAX_CONCURRENT_REQUESTS)
     timeout = httpx.Timeout(config.HTTP_TIMEOUT_SECONDS)
@@ -104,7 +114,22 @@ async def fetch_all(domains: list[str]) -> list[RawSite]:
 
         async def bound_fetch(domain: str) -> RawSite:
             async with semaphore:
-                return await fetch_domain(client, domain)
+                try:
+                    return await asyncio.wait_for(
+                        fetch_domain(client, domain), timeout=HARD_TIMEOUT_PER_DOMAIN_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("hard timeout (%ss) pe %s - il marchez ca esuat si continui", HARD_TIMEOUT_PER_DOMAIN_SECONDS, domain)
+                    return RawSite(domain=domain, error=f"hard timeout after {HARD_TIMEOUT_PER_DOMAIN_SECONDS}s")
 
-        results = await asyncio.gather(*(bound_fetch(d) for d in domains))
-        return list(results)
+        done = 0
+        results: list[RawSite] = []
+        for coro in asyncio.as_completed([bound_fetch(d) for d in domains]):
+            site = await coro
+            results.append(site)
+            done += 1
+            if done % 25 == 0 or done == len(domains):
+                logger.info("HTTP: %d/%d domenii procesate", done, len(domains))
+
+        by_domain = {s.domain: s for s in results}
+        return [by_domain[d] for d in domains]

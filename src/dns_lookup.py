@@ -59,5 +59,13 @@ async def fetch_all_dns(domains: list[str]) -> dict[str, DnsRecords]:
         async with semaphore:
             return domain, await fetch_dns(domain)
 
-    pairs = await asyncio.gather(*(bound(d) for d in domains))
-    return dict(pairs)
+    done = 0
+    results: dict[str, DnsRecords] = {}
+    for coro in asyncio.as_completed([bound(d) for d in domains]):
+        domain, records = await coro
+        results[domain] = records
+        done += 1
+        if done % 50 == 0 or done == len(domains):
+            logger.info("DNS: %d/%d domenii procesate", done, len(domains))
+
+    return results
