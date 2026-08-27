@@ -25,6 +25,18 @@ USER_AGENT = (
 )
 RETRY_ATTEMPTS = 2
 
+# DECIZIE: multe tehnologii traiesc doar pe pagini interne (reCAPTCHA/forms
+# pe /contact, ecommerce pe /shop sau /cart, comentarii pe /blog etc.), nu
+# pe homepage. Crawlem cateva pagini suplimentare de pe acelasi domeniu
+# in loc de un headless browser (cost mult mai mare, vezi README pt de ce
+# am ales sa NU facem asta pe acest set de date).
+EXTRA_PAGES_PER_DOMAIN = 2
+INTERNAL_LINK_CANDIDATES_TO_TRY = 6   # incercam pana la atatea linkuri ca sa gasim EXTRA_PAGES_PER_DOMAIN valide
+INTERNAL_LINK_KEYWORDS = [
+    "contact", "about", "shop", "store", "cart", "checkout",
+    "blog", "news", "pricing", "product", "services", "login", "book",
+]
+
 # --- DNS ---
 DNS_TIMEOUT_SECONDS = 4.0
 DNS_RECORD_TYPES = ["A", "AAAA", "CNAME", "MX", "TXT", "NS"]

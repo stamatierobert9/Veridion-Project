@@ -38,6 +38,12 @@ class RawSite:
     dns: DnsRecords = field(default_factory=DnsRecords)
     error: Optional[str] = None                                # motivul esecului, daca a esuat
     fetch_ms: Optional[int] = None
+    # DECIZIE (raspuns la "cum aducem numarul mai aproape de 477"): multe
+    # tehnologii nu apar pe homepage (recaptcha pe /contact, ecommerce pe
+    # /shop, comentarii pe /blog etc.) - in loc de headless browser (cost
+    # mare, ROI mic masurat pe acest set - vezi README), crawlem cateva
+    # pagini interne suplimentare de pe acelasi domeniu si le pastram aici.
+    extra_pages: list["RawSite"] = field(default_factory=list)
 
 
 @dataclass

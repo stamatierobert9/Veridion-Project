@@ -217,23 +217,39 @@ def _element_satisfies_conditions(element, conditions: list) -> bool:
     return True
 
 
-def _detect_one(site: RawSite, tech: Technology, meta_tags: list[tuple[str, str]], script_srcs: list[str], soup: BeautifulSoup | None) -> list[Evidence]:
+def _page_context(page: RawSite) -> tuple[list[tuple[str, str]], list[str], BeautifulSoup | None]:
+    meta_tags = _extract_meta_tags(page.html)
+    script_srcs = _extract_script_srcs(page.html)
+    try:
+        soup = BeautifulSoup(page.html, "html.parser") if page.html else None
+    except Exception:  # noqa: BLE001 - HTML foarte malformat - renuntam doar la semnalul dom pt pagina asta
+        soup = None
+    return meta_tags, script_srcs, soup
+
+
+def _page_evidence(
+    page: RawSite, tech: Technology, meta_tags: list[tuple[str, str]], script_srcs: list[str], soup: BeautifulSoup | None
+) -> list[Evidence]:
+    """Semnalele care tin de o PAGINA anume (nu de tot domeniul) - headers,
+    cookies, meta, html, script_src, dom. DNS e separat, e la nivel de
+    domeniu, nu are sens sa-l repetam per pagina."""
     evidence: list[Evidence] = []
-
-    evidence += _match_dict_rules(tech.headers, site.headers, "header")
-    evidence += _match_dict_rules(tech.cookies, site.cookies, "cookie")
+    evidence += _match_dict_rules(tech.headers, page.headers, "header")
+    evidence += _match_dict_rules(tech.cookies, page.cookies, "cookie")
     evidence += _match_meta_rules(tech.meta, meta_tags)
-    evidence += _match_list_rules(tech.html, site.html, "html")
+    evidence += _match_list_rules(tech.html, page.html, "html")
     evidence += _match_script_src_rules(tech.script_src, script_srcs)
-
-    if tech.dns:
-        evidence += _match_dns_rules(tech.dns.get("cname", []), site.dns.cname, "dns_cname")
-        evidence += _match_dns_rules(tech.dns.get("mx", []), site.dns.mx, "dns_mx")
-        evidence += _match_dns_rules(tech.dns.get("txt", []), site.dns.txt, "dns_txt")
-        evidence += _match_dns_rules(tech.dns.get("ns", []), site.dns.ns, "dns_ns")
-
     evidence += _match_dom_rules(tech.dom, soup)
+    return evidence
 
+
+def _dns_evidence(dns, tech: Technology) -> list[Evidence]:
+    evidence: list[Evidence] = []
+    if tech.dns:
+        evidence += _match_dns_rules(tech.dns.get("cname", []), dns.cname, "dns_cname")
+        evidence += _match_dns_rules(tech.dns.get("mx", []), dns.mx, "dns_mx")
+        evidence += _match_dns_rules(tech.dns.get("txt", []), dns.txt, "dns_txt")
+        evidence += _match_dns_rules(tech.dns.get("ns", []), dns.ns, "dns_ns")
     return evidence
 
 
@@ -241,23 +257,31 @@ def detect_technologies(site: RawSite, technologies: dict[str, Technology]) -> l
     if site.error:
         return []
 
-    meta_tags = _extract_meta_tags(site.html)
-    script_srcs = _extract_script_srcs(site.html)
-    # DECIZIE: parsam DOM-ul o singura data per site si il refolosim pentru
-    # toate cele ~1600 de tehnologii cu reguli `dom` - parsarea HTML-ului de
-    # fiecare data ar fi mult mai costisitoare decat cele cateva mii de
-    # apeluri select() ulterioare. "html.parser" e built-in (fara dependinta
-    # de lxml); daca performanta devine o problema la scara mai mare, lxml
-    # e inlocuirea evidenta.
-    try:
-        soup = BeautifulSoup(site.html, "html.parser") if site.html else None
-    except Exception:  # noqa: BLE001 - HTML foarte malformat - renuntam doar la semnalul dom, nu la tot site-ul
-        soup = None
+    # DECIZIE: multe tehnologii nu apar pe homepage (reCAPTCHA pe /contact,
+    # platforma de ecommerce pe /shop, comentarii pe /blog) - vezi
+    # config.EXTRA_PAGES_PER_DOMAIN si crawler._fetch_extra_pages. Le tratam
+    # pe toate ca "pagini ale aceluiasi domeniu": homepage + paginile interne
+    # gasite la crawl. Parsam DOM-ul o singura data per pagina (nu per
+    # tehnologie) - "html.parser" e built-in (fara dependinta de lxml); daca
+    # performanta devine o problema la scara mai mare, lxml e inlocuirea
+    # evidenta.
+    pages = [site] + [p for p in site.extra_pages if not p.error and p.html]
+    page_contexts = [_page_context(p) for p in pages]
 
     detections: dict[str, Detection] = {}
 
     for name, tech in technologies.items():
-        evidence = _detect_one(site, tech, meta_tags, script_srcs, soup)
+        evidence: list[Evidence] = list(_dns_evidence(site.dns, tech))
+
+        for page, (meta_tags, script_srcs, soup) in zip(pages, page_contexts):
+            page_evidence = _page_evidence(page, tech, meta_tags, script_srcs, soup)
+            if page is not site:
+                # marcam clar ca dovada vine de pe o alta pagina decat homepage,
+                # ca sa fie limpede in output de unde vine "proof"-ul cerut de task
+                for e in page_evidence:
+                    e.matched_value = f"[{page.final_url or page.domain}] {e.matched_value}"
+            evidence += page_evidence
+
         if not evidence:
             continue
 

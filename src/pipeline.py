@@ -46,14 +46,23 @@ def save_raw_snapshots(sites: list[RawSite]) -> None:
             json.dump(asdict(site), f, ensure_ascii=False)
 
 
+def _dict_to_rawsite(raw: dict) -> RawSite:
+    """Reconstruieste recursiv un RawSite dintr-un dict (json.load) - are
+    grija si de DnsRecords si de extra_pages (liste de RawSite imbricate),
+    nu doar de campurile de nivelul 1."""
+    raw = dict(raw)
+    raw["dns"] = DnsRecords(**raw.get("dns", {}))
+    raw["extra_pages"] = [_dict_to_rawsite(p) for p in raw.get("extra_pages", [])]
+    return RawSite(**raw)
+
+
 def load_raw_snapshots(domains: list[str]) -> list[RawSite]:
     sites = []
     for domain in domains:
         path = _cache_path(domain)
         with open(path, encoding="utf-8") as f:
             raw = json.load(f)
-        raw["dns"] = DnsRecords(**raw["dns"])
-        sites.append(RawSite(**raw))
+        sites.append(_dict_to_rawsite(raw))
     return sites
 
 
@@ -68,10 +77,15 @@ async def crawl_stage(domains: list[str]) -> list[RawSite]:
     for site in sites:
         site.dns = dns_map.get(site.domain, DnsRecords())
 
-    failed = [s.domain for s in sites if s.error]
+    failed = [s for s in sites if s.error]
     logger.info("crawl gata in %.1fs - %d/%d domenii cu eroare", time.monotonic() - t0, len(failed), len(domains))
-    if failed:
-        logger.info("domenii cu eroare: %s", ", ".join(failed[:20]) + (" ..." if len(failed) > 20 else ""))
+    for s in failed[:20]:
+        logger.info("  esuat: %-40s %s", s.domain, s.error)
+    if len(failed) > 20:
+        logger.info("  ... si inca %d", len(failed) - 20)
+
+    extra_fetched = sum(len(s.extra_pages) for s in sites)
+    logger.info("pagini interne suplimentare crawlite: %d (peste cele %d homepage-uri)", extra_fetched, len(domains))
 
     return sites
 
