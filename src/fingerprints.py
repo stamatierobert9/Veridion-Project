@@ -142,6 +142,8 @@ def _compile_dom_field(raw) -> list[DomRule]:
     if isinstance(raw, dict):
         for selector, spec in raw.items():
             conditions: list[DomCondition] = []
+            has_unverifiable_properties = False
+
             if not isinstance(spec, dict):
                 conditions.append(DomCondition(kind="exists", attr=None, pattern=None))
             else:
@@ -157,8 +159,26 @@ def _compile_dom_field(raw) -> list[DomRule]:
                         compiled = _compile(value)
                         pattern = compiled[0] if compiled else None
                     conditions.append(DomCondition(kind="attribute", attr=attr, pattern=pattern))
+
+                # `properties` = proprietati JS live pe elementul DOM (ex:
+                # element._reactRootContainer) - nu exista intr-un parse
+                # static de HTML, doar la runtime intr-un browser real.
+                # BUG PRINS IN REVIEW: daca regula avea DOAR `properties` si
+                # nimic altceva verificabil, conditions ramanea gol si
+                # cadeam pe fallback-ul de "doar prezenta selectorului" -
+                # ceea ce transforma o regula foarte specifica (ex: React
+                # cerea properties._reactRootContainer pe selectorul
+                # generic "body > div") intr-una care se potrivea pe orice
+                # pagina cu un div in body, adica aproape orice site.
+                # Corect e sa sarim regula cu totul cand nu o putem verifica
+                # deloc static, nu sa o slabim la "exists".
+                has_unverifiable_properties = bool(spec.get("properties"))
+
                 if not conditions:
+                    if has_unverifiable_properties:
+                        continue  # nu putem verifica nimic din regula asta static - o sarim
                     conditions.append(DomCondition(kind="exists", attr=None, pattern=None))
+
             rules.append(DomRule(selector=selector, conditions=conditions))
         return rules
 
