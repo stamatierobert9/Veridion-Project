@@ -15,7 +15,9 @@ from __future__ import annotations
 import logging
 import re
 
-from src.fingerprints import CompiledRule, Technology
+from bs4 import BeautifulSoup
+
+from src.fingerprints import CompiledRule, DomRule, Technology
 from src.models import Detection, Evidence, RawSite
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,7 @@ SIGNAL_BASE_CONFIDENCE: dict[str, float] = {
     "dns_mx": 0.90,
     "dns_txt": 0.80,
     "dns_ns": 0.75,
+    "dom": 0.80,
 }
 
 # DECIZIE: `implies` (ex: WordPress implica PHP+MySQL) - le raportez, dar cu
@@ -173,7 +176,48 @@ def _match_dns_rules(rules: list[CompiledRule], records: list[str], signal_type:
     return evidence
 
 
-def _detect_one(site: RawSite, tech: Technology, meta_tags: list[tuple[str, str]], script_srcs: list[str]) -> list[Evidence]:
+def _match_dom_rules(rules: list[DomRule], soup: BeautifulSoup | None) -> list[Evidence]:
+    if soup is None:
+        return []
+    evidence = []
+    for rule in rules:
+        try:
+            elements = soup.select(rule.selector)
+        except Exception:  # noqa: BLE001 - selectoare CSS "exotice" pe care soupsieve nu le suporta - le sarim
+            continue
+        if not elements:
+            continue
+
+        if not rule.conditions:
+            evidence.append(Evidence(signal_type="dom", pattern=rule.selector, matched_value=_truncate(str(elements[0])[:150])))
+            continue
+
+        for element in elements:
+            if _element_satisfies_conditions(element, rule.conditions):
+                evidence.append(Evidence(signal_type="dom", pattern=rule.selector, matched_value=_truncate(str(element)[:150])))
+                break  # un element care satisface conditiile e suficient pt aceasta regula
+
+    return evidence
+
+
+def _element_satisfies_conditions(element, conditions: list) -> bool:
+    for cond in conditions:
+        if cond.kind == "exists":
+            continue  # deja stim ca selectorul a gasit ceva
+        if cond.kind == "text":
+            text = element.get_text() if hasattr(element, "get_text") else ""
+            if not (cond.pattern and cond.pattern.search(text)):
+                return False
+        elif cond.kind == "attribute":
+            value = element.get(cond.attr) if hasattr(element, "get") else None
+            if value is None:
+                return False
+            if cond.pattern is not None and not cond.pattern.search(str(value)):
+                return False
+    return True
+
+
+def _detect_one(site: RawSite, tech: Technology, meta_tags: list[tuple[str, str]], script_srcs: list[str], soup: BeautifulSoup | None) -> list[Evidence]:
     evidence: list[Evidence] = []
 
     evidence += _match_dict_rules(tech.headers, site.headers, "header")
@@ -188,6 +232,8 @@ def _detect_one(site: RawSite, tech: Technology, meta_tags: list[tuple[str, str]
         evidence += _match_dns_rules(tech.dns.get("txt", []), site.dns.txt, "dns_txt")
         evidence += _match_dns_rules(tech.dns.get("ns", []), site.dns.ns, "dns_ns")
 
+    evidence += _match_dom_rules(tech.dom, soup)
+
     return evidence
 
 
@@ -197,11 +243,21 @@ def detect_technologies(site: RawSite, technologies: dict[str, Technology]) -> l
 
     meta_tags = _extract_meta_tags(site.html)
     script_srcs = _extract_script_srcs(site.html)
+    # DECIZIE: parsam DOM-ul o singura data per site si il refolosim pentru
+    # toate cele ~1600 de tehnologii cu reguli `dom` - parsarea HTML-ului de
+    # fiecare data ar fi mult mai costisitoare decat cele cateva mii de
+    # apeluri select() ulterioare. "html.parser" e built-in (fara dependinta
+    # de lxml); daca performanta devine o problema la scara mai mare, lxml
+    # e inlocuirea evidenta.
+    try:
+        soup = BeautifulSoup(site.html, "html.parser") if site.html else None
+    except Exception:  # noqa: BLE001 - HTML foarte malformat - renuntam doar la semnalul dom, nu la tot site-ul
+        soup = None
 
     detections: dict[str, Detection] = {}
 
     for name, tech in technologies.items():
-        evidence = _detect_one(site, tech, meta_tags, script_srcs)
+        evidence = _detect_one(site, tech, meta_tags, script_srcs, soup)
         if not evidence:
             continue
 
@@ -222,6 +278,11 @@ def detect_technologies(site: RawSite, technologies: dict[str, Technology]) -> l
 def _find_rule_for_evidence(tech: Technology, evidence: Evidence) -> CompiledRule:
     """Regasim regula compilata care a generat un Evidence, ca sa-i putem
     citi directiva de `confidence` originala din baza de date."""
+    if evidence.signal_type == "dom":
+        # regulile dom nu sunt CompiledRule (nu au regex) - nu au directiva
+        # de confidence proprie, deci folosim ponderea de baza a semnalului.
+        return CompiledRule(key=None, pattern=re.compile(""), directives={})
+
     all_rules: list[CompiledRule] = (
         tech.headers + tech.cookies + tech.meta + tech.html + tech.script_src
         + [r for lst in tech.dns.values() for r in lst]

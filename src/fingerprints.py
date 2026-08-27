@@ -64,6 +64,19 @@ class CompiledRule:
 
 
 @dataclass
+class DomCondition:
+    kind: str                 # "exists" | "text" | "attribute"
+    attr: str | None          # numele atributului, doar pt kind="attribute"
+    pattern: re.Pattern | None  # None inseamna "doar prezenta conteaza"
+
+
+@dataclass
+class DomRule:
+    selector: str
+    conditions: list[DomCondition]
+
+
+@dataclass
 class Technology:
     name: str
     categories: list[str]
@@ -74,6 +87,7 @@ class Technology:
     html: list[CompiledRule] = field(default_factory=list)
     script_src: list[CompiledRule] = field(default_factory=list)
     dns: dict[str, list[CompiledRule]] = field(default_factory=dict)  # "cname" | "mx" | "txt" -> reguli
+    dom: list[DomRule] = field(default_factory=list)
 
 
 def _compile_dict_field(raw: dict | None) -> list[CompiledRule]:
@@ -98,6 +112,56 @@ def _compile_list_field(raw: list | str | None) -> list[CompiledRule]:
         compiled = _compile(p)
         if compiled:
             rules.append(CompiledRule(key=None, pattern=compiled[0], directives=compiled[1]))
+    return rules
+
+
+def _compile_dom_field(raw) -> list[DomRule]:
+    """
+    Formatul `dom` din baza de date are doua variante:
+      - lista de selectoare CSS simple: doar prezenta elementului conteaza.
+      - dict: selector -> {"exists": "", "text": "regex", "attributes": {attr: regex}}
+        (conditii suplimentare pe elementul gasit de selector).
+
+    Nu tratam `properties` (proprietati JS live ale elementului in DOM) -
+    astea nu exista intr-un parse static de HTML, doar la runtime intr-un
+    browser real. E o limitare cunoscuta, mentionata si in README.
+    """
+    rules: list[DomRule] = []
+    if not raw:
+        return rules
+
+    if isinstance(raw, str):
+        raw = [raw]
+
+    if isinstance(raw, list):
+        for selector in raw:
+            if isinstance(selector, str) and selector.strip():
+                rules.append(DomRule(selector=selector, conditions=[]))
+        return rules
+
+    if isinstance(raw, dict):
+        for selector, spec in raw.items():
+            conditions: list[DomCondition] = []
+            if not isinstance(spec, dict):
+                conditions.append(DomCondition(kind="exists", attr=None, pattern=None))
+            else:
+                if "exists" in spec:
+                    conditions.append(DomCondition(kind="exists", attr=None, pattern=None))
+                if "text" in spec and spec["text"]:
+                    compiled = _compile(spec["text"])
+                    if compiled:
+                        conditions.append(DomCondition(kind="text", attr=None, pattern=compiled[0]))
+                for attr, value in (spec.get("attributes") or {}).items():
+                    pattern = None
+                    if value:
+                        compiled = _compile(value)
+                        pattern = compiled[0] if compiled else None
+                    conditions.append(DomCondition(kind="attribute", attr=attr, pattern=pattern))
+                if not conditions:
+                    conditions.append(DomCondition(kind="exists", attr=None, pattern=None))
+            rules.append(DomRule(selector=selector, conditions=conditions))
+        return rules
+
     return rules
 
 
@@ -138,6 +202,7 @@ def load_technologies() -> dict[str, Technology]:
                 html=_compile_list_field(entry.get("html")),
                 script_src=_compile_list_field(entry.get("scriptSrc")),
                 dns=dns_rules,
+                dom=_compile_dom_field(entry.get("dom")),
             )
 
     return technologies
