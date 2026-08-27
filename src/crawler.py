@@ -167,6 +167,16 @@ async def _fetch_extra_pages(client: httpx.AsyncClient, domain: str, base_url: s
         if resp.status_code >= 400:
             continue
 
+        # DECIZIE: validam si domeniul FINAL (dupa redirect), nu doar linkul
+        # initial. Am gasit domenii (ex: familybroker.cz) cu linkuri de spam
+        # injectate care redirectioneaza catre infrastructura de ad-fraud
+        # complet straina (ex: letsgoto.pro, afftopbrand.com) - fara acest
+        # check, am fi atribuit gazdei originale tehnologiile detectate pe
+        # domeniul strain catre care a redirectionat.
+        final_registered = _registered_domain(urlparse(str(resp.url)).netloc)
+        if final_registered != registered:
+            continue
+
         extra_html = ""
         content_type = resp.headers.get("content-type", "")
         if "text" in content_type or "html" in content_type or content_type == "":
