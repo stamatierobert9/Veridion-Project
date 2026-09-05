@@ -95,9 +95,20 @@ def detect_stage(sites: list[RawSite]) -> dict[str, list]:
     technologies = load_technologies()
     logger.info("%d tehnologii in baza de date", len(technologies))
 
+    # DECIZIE: matching-ul e CPU-bound (in special selectoarele CSS pt
+    # regulile "dom" - soup.select() e un tree-walk per selector per
+    # pagina, iar avem ~1800 de selectoare * pana la ~600 de pagini total
+    # acum ca am marit EXTRA_PAGES_PER_DOMAIN). Fara logging aici, un run
+    # care dureaza cateva minute pe faza asta arata identic cu unul blocat
+    # - am patit-o chiar noi. Progress logging simplu, ca la crawl.
+    total = len(sites)
+    start = time.monotonic()
     results = {}
-    for site in sites:
+    for i, site in enumerate(sites, start=1):
         results[site.domain] = detect_technologies(site, technologies)
+        if i % 25 == 0 or i == total:
+            elapsed = time.monotonic() - start
+            logger.info("matching: %d/%d domenii procesate (%.1fs)", i, total, elapsed)
     return results
 
 

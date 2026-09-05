@@ -18,6 +18,17 @@ HTTP_TIMEOUT_SECONDS = 12.0
 MAX_CONCURRENT_REQUESTS = 25          # politicos, dar suficient pt 200 domenii in cateva minute
 MAX_REDIRECTS = 8
 MAX_HTML_BYTES = 3_000_000            # nu descarcam pagini de zeci de MB degeaba
+
+# DECIZIE: matching-ul pe selectoare CSS (regulile "dom") e un tree-walk
+# soupsieve per selector, si avem ~1800 de selectoare in baza de date. Pe o
+# pagina normala (cateva zeci de KB) e neglijabil; pe o pagina de e-commerce
+# uriasa (ex: disneystore.com/halloween-shop are 2.4MB HTML, un grid urias
+# de produse) am prins efectiv procesul blocat minute intregi pe UN singur
+# selector, pe O singura pagina - am confirmat cu Ctrl+C + traceback. Peste
+# acest prag sarim DOAR semnalul "dom" pentru pagina respectiva (celelalte
+# semnale - headers/cookies/meta/html/scriptSrc - raman neafectate, sunt
+# regex simplu si scaleaza liniar cu marimea, nu au aceasta problema).
+MAX_HTML_BYTES_FOR_DOM_MATCHING = 500_000
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 "

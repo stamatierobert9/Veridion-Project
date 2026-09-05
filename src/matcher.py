@@ -17,6 +17,7 @@ import re
 
 from bs4 import BeautifulSoup
 
+from src import config
 from src.fingerprints import CompiledRule, DomRule, Technology
 from src.models import Detection, Evidence, RawSite
 
@@ -220,10 +221,22 @@ def _element_satisfies_conditions(element, conditions: list) -> bool:
 def _page_context(page: RawSite) -> tuple[list[tuple[str, str]], list[str], BeautifulSoup | None]:
     meta_tags = _extract_meta_tags(page.html)
     script_srcs = _extract_script_srcs(page.html)
-    try:
-        soup = BeautifulSoup(page.html, "html.parser") if page.html else None
-    except Exception:  # noqa: BLE001 - HTML foarte malformat - renuntam doar la semnalul dom pt pagina asta
-        soup = None
+    soup = None
+    if page.html and len(page.html) <= config.MAX_HTML_BYTES_FOR_DOM_MATCHING:
+        try:
+            soup = BeautifulSoup(page.html, "html.parser")
+        except Exception:  # noqa: BLE001 - HTML foarte malformat - renuntam doar la semnalul dom pt pagina asta
+            soup = None
+    elif page.html:
+        # DECIZIE: vezi config.MAX_HTML_BYTES_FOR_DOM_MATCHING - pagina asta
+        # e prea mare pt ~1800 de selectoare CSS (am prins concret un caz
+        # care bloca procesul minute intregi). Pierdem doar semnalul "dom"
+        # pt ea, restul semnalelor (headers/cookies/meta/html/scriptSrc)
+        # tot se calculeaza normal.
+        logger.warning(
+            "pagina prea mare (%d bytes) pentru matching dom, sar peste - %s",
+            len(page.html), page.final_url or page.domain,
+        )
     return meta_tags, script_srcs, soup
 
 
