@@ -39,11 +39,20 @@ RETRY_PASS_DELAY_SECONDS = 5.0
 # pe homepage. Crawlem cateva pagini suplimentare de pe acelasi domeniu
 # in loc de un headless browser (cost mult mai mare, vezi README pt de ce
 # am ales sa NU facem asta pe acest set de date).
-EXTRA_PAGES_PER_DOMAIN = 2
-INTERNAL_LINK_CANDIDATES_TO_TRY = 6   # incercam pana la atatea linkuri ca sa gasim EXTRA_PAGES_PER_DOMAIN valide
+# DECIZIE: am crescut de la 2 la 3 pagini + adaugat cuvinte cheie noi
+# (careers/jobs -> deseori un ATS extern ca Greenhouse/Lever/Workable;
+# faq/support -> chat widgets; signup/register -> alte fluxuri de auth
+# decat login) dupa ce am vazut ca numarul de tehnologii unice s-a
+# stabilizat in jur de ~300/477 pe cateva rulari la rand - semn ca am
+# atins plafonul a ce gaseste homepage + 2 pagini "evidente". Cresterea
+# asta e ieftina (tot fara headless browser) si tintit exact paginile
+# unde apar categorii de tehnologii pe care nu le vedem deloc inca.
+EXTRA_PAGES_PER_DOMAIN = 3
+INTERNAL_LINK_CANDIDATES_TO_TRY = 10   # incercam pana la atatea linkuri ca sa gasim EXTRA_PAGES_PER_DOMAIN valide
 INTERNAL_LINK_KEYWORDS = [
     "contact", "about", "shop", "store", "cart", "checkout",
     "blog", "news", "pricing", "product", "services", "login", "book",
+    "careers", "jobs", "faq", "support", "signup", "register", "portal",
 ]
 
 # --- DNS ---
