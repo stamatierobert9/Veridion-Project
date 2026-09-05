@@ -58,7 +58,15 @@ RETRY_PASS_DELAY_SECONDS = 5.0
 # atins plafonul a ce gaseste homepage + 2 pagini "evidente". Cresterea
 # asta e ieftina (tot fara headless browser) si tintit exact paginile
 # unde apar categorii de tehnologii pe care nu le vedem deloc inca.
-EXTRA_PAGES_PER_DOMAIN = 3
+# DECIZIE: am incercat 3 (in loc de 2) - a mutat numarul de tehnologii
+# unice cu exact 1 (299->300), dar a triplat timpul de matching (de la
+# secunde la ~15 minute pe cele 200 de domenii, din cauza selectoarelor
+# CSS rulate pe mult mai multe pagini). Nu merita tradeoff-ul pe acest
+# set de date - ne-am oprit la 300/477, un platou real, nu o problema
+# de tuning. Revenim la 2 pagini, dar pastram cuvintele cheie noi
+# (careers/faq/signup etc.) - nu costa nimic in plus, doar schimba
+# PRIORITATEA linkurilor incercate cand homepage-ul are astfel de linkuri.
+EXTRA_PAGES_PER_DOMAIN = 2
 INTERNAL_LINK_CANDIDATES_TO_TRY = 10   # incercam pana la atatea linkuri ca sa gasim EXTRA_PAGES_PER_DOMAIN valide
 INTERNAL_LINK_KEYWORDS = [
     "contact", "about", "shop", "store", "cart", "checkout",

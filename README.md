@@ -71,11 +71,11 @@ arata cum gandesc, nu regex-urile in sine.
 - [x] Colectare DNS async (CNAME/MX/TXT/NS)
 - [x] Loader baza de fingerprint-uri (webappanalyzer, parsare + compilare regex)
 - [x] Pipeline + output (JSON structurat + CSV flat) + cache pentru raw snapshots
-- [ ] **`src/matcher.py`** — motorul de detectie propriu-zis (headers, cookies, meta, html, scriptSrc, dns)
-- [ ] Scor de incredere per detectie + strategie de dedup (vezi TODO-urile din matcher.py)
-- [ ] Decizie + implementare pentru `implies` (ex: WordPress implica PHP+MySQL — le raportezi?)
-- [ ] Rulare completa pe cele 200 de domenii, comparare cu target-ul de 477 tehnologii
-- [ ] (optional, daca ramane timp) pas cu headless browser (Playwright) pentru site-urile SPA
+- [x] **`src/matcher.py`** — motorul de detectie propriu-zis (headers, cookies, meta, html, scriptSrc, dns, dom)
+- [x] Scor de incredere per detectie + strategie de dedup (vezi matcher.py)
+- [x] Decizie + implementare pentru `implies` (ex: WordPress implica PHP+MySQL — le raportezi?)
+- [x] Rulare completa pe cele 200 de domenii, comparare cu target-ul de 477 tehnologii (300/477, vezi "Rezultat fata de target")
+- [x] (decis sa NU facem) pas cu headless browser (Playwright) pentru site-urile SPA - vezi debate topic 1 pentru motivatie
   unde HTML-ul static nu contine suficiente semnale (React/Vue randate client-side)
 - [ ] Scris explicatia/prezentarea solutiei + raspunsurile la debate topics
 - [ ] Curatenie finala, README, submit link Github
@@ -153,7 +153,22 @@ Puncte de plecare:
 
 ## Rezultat fata de target
 
-*(completezi dupa ce rulezi pipeline-ul complet)*
+- Tehnologii unice gasite: 300 / 477 (~63%)
+- Total detectii (domeniu, tehnologie): 2056
+- Domenii fara nicio detectie: 14 / 200
+- Domenii cu eroare de crawl: 13 / 200 (4 fara niciun record DNS - domenii
+  moarte; restul 5xx/timeout - vezi debate topic 1)
 
-- Tehnologii unice gasite: __ / 477
-- Domenii fara nicio detectie: __ / 200
+Rulare: `python scripts/run.py` din terminal local (nu din sandbox-ul
+Cowork, care are allowlist de retea restrictiv), pe cele 200 de domenii
+din `data/domains.csv`, cu baza completa webappanalyzer (7596 tehnologii).
+
+Comanda folosita pentru a genera numerele de mai sus:
+```bash
+python scripts/run.py
+```
+
+(De completat de tine: interpretarea rezultatului - ce categorii de
+tehnologii crezi ca lipsesc cel mai probabil fata de cele 477 gasite de
+Veridion, si de ce - asta chiar depinde de cum au numarat ei, care e o
+intrebare buna de pus daca ai ocazia.)
