@@ -359,18 +359,3 @@ recurring-unknown-pattern list above — turning a bundle name or a script
 comment into a hypothesis like "this looks like technology X" — but treat
 that strictly as a hypothesis a person verifies and turns into an actual
 fingerprint rule, not something trusted to create detections on its own.
-
-## Status
-
-- [x] Repo setup, dependencies, structure
-- [x] Async HTTP crawler — https -> www -> http fallback, redirect chain, cookies, headers
-- [x] Async DNS collection (CNAME/MX/TXT/NS)
-- [x] Fingerprint database loader (webappanalyzer, parsing + regex compilation)
-- [x] Pipeline + output (structured JSON + flat CSV) + raw-snapshot cache
-- [x] `src/matcher.py` — the actual detection engine (headers, cookies, meta, html, scriptSrc, dns, dom)
-- [x] Confidence scoring per detection + dedup strategy
-- [x] Decision + implementation for `implies` (e.g. WordPress implies PHP+MySQL)
-- [x] Full run over the 200 domains, compared against the 477-technology target (300/477, see "Result against the target")
-- [x] Decided *against* a headless-browser (Playwright) pass for this run — see "Known issues" above
-- [x] Write-up of the implementation and the debate topics
-- [ ] Final cleanup, submit GitHub link
