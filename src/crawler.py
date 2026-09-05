@@ -206,6 +206,30 @@ async def _fetch_extra_pages(client: httpx.AsyncClient, domain: str, base_url: s
 HARD_TIMEOUT_PER_DOMAIN_SECONDS = config.HTTP_TIMEOUT_SECONDS * 4
 
 
+# DECIZIE: distingem domenii "moarte" (nu exista DNS deloc pentru ele -
+# nu are sens sa reincercam) de esecuri tranzitorii (5xx, timeout, conexiune
+# refuzata la momentul respectiv). Am verificat manual cateva domenii care
+# esuau constant (vezi README, debate topic #1): ecolab.com si
+# sindacatobadanti.it au raspuns cu 504/503 in crawl dar functionau normal
+# la un curl manual la cateva minute distanta - server-side flakiness, nu
+# o problema reala a domeniului. In schimb domenii ca wglchurch.com nu au
+# NICIUN record DNS (`dig +short A` gol) - alea sunt moarte de-a binelea si
+# reincercarea lor doar pierde timp.
+_DEAD_DOMAIN_ERROR_MARKERS = (
+    "nodename nor servname",  # macOS/BSD getaddrinfo
+    "name or service not known",  # Linux getaddrinfo
+    "getaddrinfo failed",  # Windows
+    "no address associated",
+)
+
+
+def _looks_permanently_dead(error: str | None) -> bool:
+    if not error:
+        return False
+    lowered = error.lower()
+    return any(marker in lowered for marker in _DEAD_DOMAIN_ERROR_MARKERS)
+
+
 async def fetch_all(domains: list[str]) -> list[RawSite]:
     limits = httpx.Limits(max_connections=config.MAX_CONCURRENT_REQUESTS, max_keepalive_connections=config.MAX_CONCURRENT_REQUESTS)
     timeout = httpx.Timeout(config.HTTP_TIMEOUT_SECONDS)
@@ -218,7 +242,7 @@ async def fetch_all(domains: list[str]) -> list[RawSite]:
         timeout=timeout,
         headers=headers,
         max_redirects=config.MAX_REDIRECTS,
-        verify=False,  # multe domenii mici au certificate expirate/self-signed; nu vrem sa le pierdem din cauza asta
+        verify=False,  # multe domenii mici au certificate expirate/self-signate; nu vrem sa le pierdem din cauza asta
     ) as client:
 
         async def bound_fetch(domain: str) -> RawSite:
@@ -231,14 +255,35 @@ async def fetch_all(domains: list[str]) -> list[RawSite]:
                     logger.warning("hard timeout (%ss) pe %s - il marchez ca esuat si continui", HARD_TIMEOUT_PER_DOMAIN_SECONDS, domain)
                     return RawSite(domain=domain, error=f"hard timeout after {HARD_TIMEOUT_PER_DOMAIN_SECONDS}s")
 
-        done = 0
-        results: list[RawSite] = []
-        for coro in asyncio.as_completed([bound_fetch(d) for d in domains]):
-            site = await coro
-            results.append(site)
-            done += 1
-            if done % 25 == 0 or done == len(domains):
-                logger.info("HTTP: %d/%d domenii procesate", done, len(domains))
+        async def run_pass(target_domains: list[str]) -> list[RawSite]:
+            done = 0
+            pass_results: list[RawSite] = []
+            for coro in asyncio.as_completed([bound_fetch(d) for d in target_domains]):
+                site = await coro
+                pass_results.append(site)
+                done += 1
+                if done % 25 == 0 or done == len(target_domains):
+                    logger.info("HTTP: %d/%d domenii procesate", done, len(target_domains))
+            return pass_results
 
+        results = await run_pass(domains)
         by_domain = {s.domain: s for s in results}
+
+        retryable = [
+            s.domain for s in results if s.error and not _looks_permanently_dead(s.error)
+        ]
+        if retryable:
+            logger.info(
+                "%d domenii au esuat tranzitoriu (nu par moarte definitiv) - reincerc o data dupa o pauza scurta: %s",
+                len(retryable), ", ".join(retryable),
+            )
+            await asyncio.sleep(config.RETRY_PASS_DELAY_SECONDS)
+            retry_results = await run_pass(retryable)
+            recovered = 0
+            for site in retry_results:
+                if not site.error:
+                    recovered += 1
+                by_domain[site.domain] = site
+            logger.info("reincercare: %d/%d domenii recuperate", recovered, len(retryable))
+
         return [by_domain[d] for d in domains]

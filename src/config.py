@@ -25,6 +25,15 @@ USER_AGENT = (
 )
 RETRY_ATTEMPTS = 2
 
+# DECIZIE: dupa ce s-a terminat crawl-ul complet pe toate domeniile, mai
+# facem o singura trecere suplimentara DOAR pe domeniile care au esuat cu
+# un motiv care pare tranzitoriu (5xx, timeout, conexiune refuzata) - nu si
+# pe cele fara niciun record DNS, care sunt aproape sigur domenii moarte.
+# Am confirmat manual (curl separat, la minute distanta) ca cel putin 2
+# din cele 12 domenii esuate initial raspundeau normal putin mai tarziu -
+# deci o reincercare tarzie chiar recupereaza domenii reale.
+RETRY_PASS_DELAY_SECONDS = 5.0
+
 # DECIZIE: multe tehnologii traiesc doar pe pagini interne (reCAPTCHA/forms
 # pe /contact, ecommerce pe /shop sau /cart, comentarii pe /blog etc.), nu
 # pe homepage. Crawlem cateva pagini suplimentare de pe acelasi domeniu

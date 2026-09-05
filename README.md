@@ -97,6 +97,16 @@ pe cele 200 de domenii si vezi ce lipseste):
   exista"?
 - Regex-uri generice care dau fals-pozitiv (ex: un string comun in `html`
   care se potriveste intamplator).
+- Esecuri de crawl care sunt de fapt tranzitorii, nu permanente: din cele
+  12/200 domenii esuate initial, am verificat manual cateva - `ecolab.com`
+  si `sindacatobadanti.it` raspundeau cu 504/503 in timpul crawl-ului, dar
+  functionau normal la un `curl` facut cateva minute mai tarziu (server-side
+  flakiness). In schimb alte 4 domenii (`wglchurch.com` etc.) nu au NICIUN
+  record DNS (`dig +short A` gol) - alea sunt moarte de-a binelea. Am
+  adaugat o a doua trecere de crawl, dupa o pauza scurta, doar pentru
+  domeniile din prima categorie (vezi `_looks_permanently_dead` in
+  `crawler.py`) - simplu, dar recupereaza cateva domenii reale fara sa
+  piarda timp reincercand domenii moarte.
 - Domenii care redirectioneaza complet in alta parte (ex: catre un alt
   domeniu, un parking page, sau catre HTTPS cu certificat invalid).
 - Site-uri foarte mici (ex: cele de pe `weebly.com`, `booked.net`,
