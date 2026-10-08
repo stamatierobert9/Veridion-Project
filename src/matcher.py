@@ -1,14 +1,11 @@
 """
-Motorul de detectie: primeste un RawSite si baza de Technology si intoarce
-o lista de Detection, fiecare cu dovezi concrete.
+The detection engine: takes a RawSite and the Technology database and
+returns a list of Detection objects, each with concrete evidence.
 
-IMPORTANT (citeste asta): am scris eu implementarea de mai jos ca sa avem
-un draft de la care sa pornim, dar deciziile de fond sunt marcate explicit
-cu "# DECIZIE:" - sunt alegerile pe care le poti schimba/argumenta diferit
-in README (scorul de incredere per tip de semnal, cum combini mai multe
-dovezi, ce faci cu `implies`). Nu le trata ca fiind "corecte" - citeste-le
-critic, testeaza rezultatele si schimba ce nu ti se pare potrivit. Asta e
-exact genul de decizie pe care Veridion vrea sa o vada argumentata de tine.
+The judgment calls are marked explicitly with "# DECISION:" - the
+confidence score per signal type, how multiple pieces of evidence are
+combined, and what happens with `implies`. See README for the reasoning
+behind each one.
 """
 from __future__ import annotations
 
@@ -23,13 +20,13 @@ from src.models import Detection, Evidence, RawSite
 
 logger = logging.getLogger(__name__)
 
-# --- extragere semnale suplimentare din HTML brut -----------------------
+# --- extracting additional signals from raw HTML -------------------------
 
 _META_RE = re.compile(
     r'<meta[^>]+name=["\']([^"\']+)["\'][^>]+content=["\']([^"\']*)["\']',
     re.IGNORECASE,
 )
-# unele pagini scriu content inainte de name - varianta inversa
+# some pages write content before name - reversed variant
 _META_RE_REV = re.compile(
     r'<meta[^>]+content=["\']([^"\']*)["\'][^>]+name=["\']([^"\']+)["\']',
     re.IGNORECASE,
@@ -52,14 +49,14 @@ def _truncate(value: str, length: int = 150) -> str:
     return value if len(value) <= length else value[: length - 3] + "..."
 
 
-# --- ponderi de incredere per tip de semnal -------------------------------
+# --- confidence weights per signal type ------------------------------------
 #
-# DECIZIE: un match pe `header`/`cookie`/`dns` e greu de falsificat (nu poti
-# controla usor headerul de raspuns al altcuiva) - le dau incredere de baza
-# mare. `script_src`/`meta` sunt aproape la fel de sigure (calea unui script
-# sau un tag <meta generator> e specific). `html` e cel mai generic - un
-# regex pe tot corpul paginii poate da fals-pozitive mai usor - incredere de
-# baza mai mica. Poti argumenta diferit; important e sa argumentezi.
+# DECISION: a match on `header`/`cookie`/`dns` is hard to fake (you can't
+# easily control someone else's response headers) - these get a high base
+# confidence. `script_src`/`meta` are almost as reliable (a script path or a
+# <meta generator> tag is specific). `html` is the most generic - a regex
+# over the whole page body produces false positives more easily - so it
+# gets a lower base confidence.
 SIGNAL_BASE_CONFIDENCE: dict[str, float] = {
     "header": 0.90,
     "cookie": 0.85,
@@ -73,20 +70,20 @@ SIGNAL_BASE_CONFIDENCE: dict[str, float] = {
     "dom": 0.80,
 }
 
-# DECIZIE: `implies` (ex: WordPress implica PHP+MySQL) - le raportez, dar cu
-# incredere fixa, mica, si marcate clar ca "implied" in evidence, ca sa se
-# poata distinge usor de o detectie directa in output. Daca decizi ca nu au
-# ce cauta (pentru ca "umfla" artificial numarul de tehnologii gasite fata
-# de cele 477), seteaza asta pe False.
+# DECISION: `implies` (e.g. WordPress implies PHP+MySQL) - I report them,
+# but with a fixed, low confidence and clearly marked as "implied" in the
+# evidence, so they're easy to tell apart from a direct detection in the
+# output. Set this to False to exclude them (e.g. if they're considered to
+# artificially inflate the number of technologies found vs. the 477).
 INCLUDE_IMPLIED_TECHNOLOGIES = True
 IMPLIED_CONFIDENCE = 0.40
 
 
 def _rule_confidence(rule: CompiledRule, signal_type: str) -> float:
     """
-    Foloseste scorul de incredere sugerat de baza de fingerprint-uri
-    (directiva `confidence:NN`, 0-100), daca exista, altfel cade pe
-    ponderea de baza a tipului de semnal.
+    Uses the confidence suggested by the fingerprint database (the
+    `confidence:NN` directive, 0-100) to scale the signal type's base
+    weight, if present; otherwise falls back to the base weight.
     """
     base = SIGNAL_BASE_CONFIDENCE[signal_type]
     raw = rule.directives.get("confidence")
@@ -100,13 +97,13 @@ def _rule_confidence(rule: CompiledRule, signal_type: str) -> float:
 
 def _combine_confidence(evidences_confidence: list[float]) -> float:
     """
-    Combina mai multe dovezi independente pentru aceeasi tehnologie.
+    Combines multiple independent pieces of evidence for the same technology.
 
-    DECIZIE: folosesc "noisy-OR" (1 - produsul complementelor) in loc de un
-    simplu maxim, ca sa recompensez tehnologiile confirmate de MULTIPLE
-    semnale independente (ex: si header, si cookie, si html) fata de una
-    confirmata de un singur regex slab pe html. Capat la 0.99 - nicio
-    detectie automata nu ar trebui sa se declare 100% sigura.
+    DECISION: I use "noisy-OR" (1 - product of complements) instead of a
+    simple max, to reward technologies confirmed by MULTIPLE independent
+    signals (e.g. header, cookie and html) over one confirmed by a single
+    weak html regex. Capped at 0.99 - no automated detection should claim
+    to be 100% certain.
     """
     prob_none_correct = 1.0
     for c in evidences_confidence:
@@ -184,7 +181,7 @@ def _match_dom_rules(rules: list[DomRule], soup: BeautifulSoup | None) -> list[E
     for rule in rules:
         try:
             elements = soup.select(rule.selector)
-        except Exception:  # noqa: BLE001 - selectoare CSS "exotice" pe care soupsieve nu le suporta - le sarim
+        except Exception:  # noqa: BLE001 - "exotic" CSS selectors that soupsieve doesn't support - skip them
             continue
         if not elements:
             continue
@@ -196,7 +193,7 @@ def _match_dom_rules(rules: list[DomRule], soup: BeautifulSoup | None) -> list[E
         for element in elements:
             if _element_satisfies_conditions(element, rule.conditions):
                 evidence.append(Evidence(signal_type="dom", pattern=rule.selector, matched_value=_truncate(str(element)[:150])))
-                break  # un element care satisface conditiile e suficient pt aceasta regula
+                break  # one element that satisfies the conditions is enough for this rule
 
     return evidence
 
@@ -204,7 +201,7 @@ def _match_dom_rules(rules: list[DomRule], soup: BeautifulSoup | None) -> list[E
 def _element_satisfies_conditions(element, conditions: list) -> bool:
     for cond in conditions:
         if cond.kind == "exists":
-            continue  # deja stim ca selectorul a gasit ceva
+            continue  # we already know the selector found something
         if cond.kind == "text":
             text = element.get_text() if hasattr(element, "get_text") else ""
             if not (cond.pattern and cond.pattern.search(text)):
@@ -225,16 +222,16 @@ def _page_context(page: RawSite) -> tuple[list[tuple[str, str]], list[str], Beau
     if page.html and len(page.html) <= config.MAX_HTML_BYTES_FOR_DOM_MATCHING:
         try:
             soup = BeautifulSoup(page.html, "html.parser")
-        except Exception:  # noqa: BLE001 - HTML foarte malformat - renuntam doar la semnalul dom pt pagina asta
+        except Exception:  # noqa: BLE001 - badly malformed HTML - we only drop the dom signal for this page
             soup = None
     elif page.html:
-        # DECIZIE: vezi config.MAX_HTML_BYTES_FOR_DOM_MATCHING - pagina asta
-        # e prea mare pt ~1800 de selectoare CSS (am prins concret un caz
-        # care bloca procesul minute intregi). Pierdem doar semnalul "dom"
-        # pt ea, restul semnalelor (headers/cookies/meta/html/scriptSrc)
-        # tot se calculeaza normal.
+        # DECISION: see config.MAX_HTML_BYTES_FOR_DOM_MATCHING - this page
+        # is too large for ~1800 CSS selectors (I caught a concrete case
+        # that blocked the process for minutes). We only lose the "dom"
+        # signal for it; the other signals (headers/cookies/meta/html/
+        # scriptSrc) are still computed normally.
         logger.warning(
-            "pagina prea mare (%d bytes) pentru matching dom, sar peste - %s",
+            "page too large (%d bytes) for dom matching, skipping - %s",
             len(page.html), page.final_url or page.domain,
         )
     return meta_tags, script_srcs, soup
@@ -243,9 +240,9 @@ def _page_context(page: RawSite) -> tuple[list[tuple[str, str]], list[str], Beau
 def _page_evidence(
     page: RawSite, tech: Technology, meta_tags: list[tuple[str, str]], script_srcs: list[str], soup: BeautifulSoup | None
 ) -> list[Evidence]:
-    """Semnalele care tin de o PAGINA anume (nu de tot domeniul) - headers,
-    cookies, meta, html, script_src, dom. DNS e separat, e la nivel de
-    domeniu, nu are sens sa-l repetam per pagina."""
+    """Signals that belong to a specific PAGE (not the whole domain) -
+    headers, cookies, meta, html, script_src, dom. DNS is separate: it's
+    domain-level, so there's no point repeating it per page."""
     evidence: list[Evidence] = []
     evidence += _match_dict_rules(tech.headers, page.headers, "header")
     evidence += _match_dict_rules(tech.cookies, page.cookies, "cookie")
@@ -270,14 +267,14 @@ def detect_technologies(site: RawSite, technologies: dict[str, Technology]) -> l
     if site.error:
         return []
 
-    # DECIZIE: multe tehnologii nu apar pe homepage (reCAPTCHA pe /contact,
-    # platforma de ecommerce pe /shop, comentarii pe /blog) - vezi
-    # config.EXTRA_PAGES_PER_DOMAIN si crawler._fetch_extra_pages. Le tratam
-    # pe toate ca "pagini ale aceluiasi domeniu": homepage + paginile interne
-    # gasite la crawl. Parsam DOM-ul o singura data per pagina (nu per
-    # tehnologie) - "html.parser" e built-in (fara dependinta de lxml); daca
-    # performanta devine o problema la scara mai mare, lxml e inlocuirea
-    # evidenta.
+    # DECISION: many technologies don't show up on the homepage (reCAPTCHA
+    # on /contact, ecommerce platform on /shop, comments on /blog) - see
+    # config.EXTRA_PAGES_PER_DOMAIN and crawler._fetch_extra_pages. We treat
+    # them all as "pages of the same domain": homepage + the internal pages
+    # found during the crawl. The DOM is parsed once per page (not per
+    # technology) - "html.parser" is built in (no lxml dependency); if
+    # performance becomes a problem at larger scale, lxml is the obvious
+    # replacement.
     pages = [site] + [p for p in site.extra_pages if not p.error and p.html]
     page_contexts = [_page_context(p) for p in pages]
 
@@ -289,8 +286,8 @@ def detect_technologies(site: RawSite, technologies: dict[str, Technology]) -> l
         for page, (meta_tags, script_srcs, soup) in zip(pages, page_contexts):
             page_evidence = _page_evidence(page, tech, meta_tags, script_srcs, soup)
             if page is not site:
-                # marcam clar ca dovada vine de pe o alta pagina decat homepage,
-                # ca sa fie limpede in output de unde vine "proof"-ul cerut de task
+                # mark clearly that the evidence comes from a page other than
+                # the homepage, so the output shows where the "proof" came from
                 for e in page_evidence:
                     e.matched_value = f"[{page.final_url or page.domain}] {e.matched_value}"
             evidence += page_evidence
@@ -313,11 +310,11 @@ def detect_technologies(site: RawSite, technologies: dict[str, Technology]) -> l
 
 
 def _find_rule_for_evidence(tech: Technology, evidence: Evidence) -> CompiledRule:
-    """Regasim regula compilata care a generat un Evidence, ca sa-i putem
-    citi directiva de `confidence` originala din baza de date."""
+    """Finds the compiled rule that produced an Evidence, so we can read
+    its original `confidence` directive from the database."""
     if evidence.signal_type == "dom":
-        # regulile dom nu sunt CompiledRule (nu au regex) - nu au directiva
-        # de confidence proprie, deci folosim ponderea de baza a semnalului.
+        # dom rules aren't CompiledRules (no regex) - they have no
+        # confidence directive of their own, so the signal's base weight applies.
         return CompiledRule(key=None, pattern=re.compile(""), directives={})
 
     all_rules: list[CompiledRule] = (
@@ -327,7 +324,7 @@ def _find_rule_for_evidence(tech: Technology, evidence: Evidence) -> CompiledRul
     for rule in all_rules:
         if rule.pattern.pattern == evidence.pattern:
             return rule
-    # fallback (nu ar trebui sa se intample) - trateaza ca html, cel mai slab semnal
+    # fallback (shouldn't happen) - no directive, so the signal's base weight applies
     return CompiledRule(key=None, pattern=re.compile(""), directives={})
 
 
@@ -339,7 +336,7 @@ def _add_implied(detections: dict[str, Detection], technologies: dict[str, Techn
             continue
         for implied_name in tech.implies:
             if implied_name in detections:
-                continue  # deja detectat direct (sau implicat de altceva) - nu suprascriem
+                continue  # already detected directly (or implied by something else) - don't overwrite
             implied_tech = technologies.get(implied_name)
             if not implied_tech:
                 continue
@@ -348,6 +345,6 @@ def _add_implied(detections: dict[str, Detection], technologies: dict[str, Techn
                 categories=implied_tech.categories,
                 confidence=IMPLIED_CONFIDENCE,
                 evidence=[
-                    Evidence(signal_type="implied", pattern=f"implies:{name}", matched_value=f"dedus din {name}")
+                    Evidence(signal_type="implied", pattern=f"implies:{name}", matched_value=f"implied by {name}")
                 ],
             )

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-CLI de intrare.
+CLI entry point.
 
-Utilizare:
-    python scripts/run.py                 # crawl complet + detectie
-    python scripts/run.py --from-cache     # refoloseste ultimul crawl brut
-                                            # (data/output/raw/*.json) si doar
-                                            # re-ruleaza matcher-ul - util cand
-                                            # iterezi pe matcher.py
+Usage:
+    python scripts/run.py                 # full crawl + detection
+    python scripts/run.py --from-cache     # reuse the last raw crawl
+                                            # (output/raw/*.json) and only
+                                            # re-run the matcher - useful when
+                                            # iterating on matcher.py
 """
 import argparse
 import asyncio
@@ -21,7 +21,7 @@ from src.pipeline import run
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Veridion Website Technologies Scraper")
-    parser.add_argument("--from-cache", action="store_true", help="sari peste crawl, foloseste raw snapshots existente")
+    parser.add_argument("--from-cache", action="store_true", help="skip the crawl, use existing raw snapshots")
     args = parser.parse_args()
 
     asyncio.run(run(use_cache=args.from_cache))

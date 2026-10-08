@@ -1,21 +1,20 @@
 """
-Loader pentru baza de date de fingerprint-uri (formatul open-source
-Wappalyzer/webappanalyzer: https://github.com/enthec/webappanalyzer).
+Loader for the fingerprint database (the open-source Wappalyzer /
+webappanalyzer format: https://github.com/enthec/webappanalyzer).
 
-De ce sursa asta si nu inventam noi 477 de reguli de la zero:
-o baza de fingerprint-uri de calitate inseamna mii de ore de observatii
-acumulate de comunitate (headere specifice, cookie-uri, pattern-uri de
-script). Reinventarea ei de la zero pentru un take-home nu ar demonstra
-nimic in plus fata de a folosi o baza deschisa, documentata, si a-ti pune
-efortul propriu in partea care CHIAR conteaza: motorul de matching,
-scorurile de incredere, semnalele suplimentare (DNS) si modul in care
-prezinti dovezile. Vezi README pentru mai multe detalii despre aceasta
-decizie si despre cum ai extinde/imbunatati baza de date pe viitor
-(debate topic #3).
+Why this source instead of inventing 477 rules from scratch: a
+good-quality fingerprint database means thousands of hours of observations
+accumulated by the community (specific headers, cookies, script
+patterns). Reinventing it from scratch for a take-home wouldn't show
+anything more than using an open, documented database, and putting the
+effort into the part that ACTUALLY matters: the matching engine, the
+confidence scores, the additional signals (DNS) and how the evidence is
+presented. See README for more on this decision and on how I'd extend /
+improve the database going forward.
 
-Acest modul doar PARSEAZA formatul brut intr-o structura usor de folosit
-de matcher.py. Nu contine nicio decizie de "ce inseamna un match" - aia e
-in matcher.py.
+This module only PARSES the raw format into a structure that's easy for
+matcher.py to use. It contains no decision about "what counts as a match"
+- that lives in matcher.py.
 """
 from __future__ import annotations
 
@@ -25,12 +24,13 @@ from dataclasses import dataclass, field
 
 from src import config
 
-# Regex-urile din formatul Wappalyzer pot contine sufixe gen:
+# Regexes in the Wappalyzer format can contain suffixes like:
 #   "^WordPress(?: ([\d.]+))?\;version:\1"
 #   "someHeaderValue\;confidence:50"
-# Astea nu sunt parte din regex-ul propriu-zis, ci directive separate de
-# regex printr-un ';' (scapat ca '\;'). Le separam inainte de a compila.
-_DIRECTIVE_SPLIT = re.compile(r"\\;")
+# These aren't part of the regex itself, they're separate directives
+# delimited from the regex by a ';' (escaped as '\;'). We split them off
+# before compiling.
+_DIRECTIVE_SPLIT = re.compile(r"\;")
 
 
 def _split_directives(raw: str) -> tuple[str, dict[str, str]]:
@@ -51,14 +51,15 @@ def _compile(raw: str) -> tuple[re.Pattern, dict[str, str]] | None:
     try:
         return re.compile(pattern_str, re.IGNORECASE), directives
     except re.error:
-        # cateva regex-uri din baza folosesc sintaxa PCRE care nu e 100%
-        # compatibila cu modulul `re` din Python; le sarim, nu blocam tot pipeline-ul.
+        # a few regexes in the database use PCRE syntax that isn't 100%
+        # compatible with Python's `re` module; we skip them rather than
+        # breaking the whole pipeline.
         return None
 
 
 @dataclass
 class CompiledRule:
-    key: str | None          # numele header-ului / cookie-ului / meta tag-ului, sau None pt html/scriptSrc/css
+    key: str | None          # header / cookie / meta tag name, or None for html/scriptSrc/css
     pattern: re.Pattern
     directives: dict[str, str]
 
@@ -66,8 +67,8 @@ class CompiledRule:
 @dataclass
 class DomCondition:
     kind: str                 # "exists" | "text" | "attribute"
-    attr: str | None          # numele atributului, doar pt kind="attribute"
-    pattern: re.Pattern | None  # None inseamna "doar prezenta conteaza"
+    attr: str | None          # attribute name, only for kind="attribute"
+    pattern: re.Pattern | None  # None means "only presence matters"
 
 
 @dataclass
@@ -86,7 +87,7 @@ class Technology:
     meta: list[CompiledRule] = field(default_factory=list)
     html: list[CompiledRule] = field(default_factory=list)
     script_src: list[CompiledRule] = field(default_factory=list)
-    dns: dict[str, list[CompiledRule]] = field(default_factory=dict)  # "cname" | "mx" | "txt" -> reguli
+    dns: dict[str, list[CompiledRule]] = field(default_factory=dict)  # "cname" | "mx" | "txt" -> rules
     dom: list[DomRule] = field(default_factory=list)
 
 
@@ -117,14 +118,14 @@ def _compile_list_field(raw: list | str | None) -> list[CompiledRule]:
 
 def _compile_dom_field(raw) -> list[DomRule]:
     """
-    Formatul `dom` din baza de date are doua variante:
-      - lista de selectoare CSS simple: doar prezenta elementului conteaza.
-      - dict: selector -> {"exists": "", "text": "regex", "attributes": {attr: regex}}
-        (conditii suplimentare pe elementul gasit de selector).
+    The `dom` format in the database has two variants:
+      - a list of plain CSS selectors: only the element's presence matters.
+      - a dict: selector -> {"exists": "", "text": "regex", "attributes": {attr: regex}}
+        (extra conditions on the element found by the selector).
 
-    Nu tratam `properties` (proprietati JS live ale elementului in DOM) -
-    astea nu exista intr-un parse static de HTML, doar la runtime intr-un
-    browser real. E o limitare cunoscuta, mentionata si in README.
+    We don't handle `properties` (live JS properties of the element in the
+    DOM) - those don't exist in a static HTML parse, only at runtime in a
+    real browser. This is a known limitation, also mentioned in the README.
     """
     rules: list[DomRule] = []
     if not raw:
@@ -160,23 +161,23 @@ def _compile_dom_field(raw) -> list[DomRule]:
                         pattern = compiled[0] if compiled else None
                     conditions.append(DomCondition(kind="attribute", attr=attr, pattern=pattern))
 
-                # `properties` = proprietati JS live pe elementul DOM (ex:
-                # element._reactRootContainer) - nu exista intr-un parse
-                # static de HTML, doar la runtime intr-un browser real.
-                # BUG PRINS IN REVIEW: daca regula avea DOAR `properties` si
-                # nimic altceva verificabil, conditions ramanea gol si
-                # cadeam pe fallback-ul de "doar prezenta selectorului" -
-                # ceea ce transforma o regula foarte specifica (ex: React
-                # cerea properties._reactRootContainer pe selectorul
-                # generic "body > div") intr-una care se potrivea pe orice
-                # pagina cu un div in body, adica aproape orice site.
-                # Corect e sa sarim regula cu totul cand nu o putem verifica
-                # deloc static, nu sa o slabim la "exists".
+                # `properties` = live JS properties on the DOM element (e.g.
+                # element._reactRootContainer) - they don't exist in a static
+                # HTML parse, only at runtime in a real browser.
+                # BUG CAUGHT IN REVIEW: if the rule had ONLY `properties` and
+                # nothing else verifiable, conditions stayed empty and we
+                # fell back to "selector presence only" - which turned a very
+                # specific rule (e.g. React required
+                # properties._reactRootContainer on the generic selector
+                # "body > div") into one that matched any page with a div in
+                # the body, i.e. almost every site.
+                # The right thing is to skip the rule entirely when we can't
+                # verify any of it statically, not to weaken it to "exists".
                 has_unverifiable_properties = bool(spec.get("properties"))
 
                 if not conditions:
                     if has_unverifiable_properties:
-                        continue  # nu putem verifica nimic din regula asta static - o sarim
+                        continue  # nothing in this rule can be verified statically - skip it
                     conditions.append(DomCondition(kind="exists", attr=None, pattern=None))
 
             rules.append(DomRule(selector=selector, conditions=conditions))
@@ -203,7 +204,7 @@ def load_technologies() -> dict[str, Technology]:
         for name, entry in raw.items():
             cat_names = [categories.get(str(c), str(c)) for c in entry.get("cats", [])]
 
-            # DNS: in format-ul sursa e o lista de stringuri de forma "MX someregex" etc.
+            # DNS: in the source format it's a dict of record type -> list of regexes
             dns_raw = entry.get("dns")
             dns_rules: dict[str, list[CompiledRule]] = {}
             if isinstance(dns_raw, dict):

@@ -1,12 +1,12 @@
 """
-Structuri de date comune, folosite intre crawler -> matcher -> output.
+Shared data structures passed between crawler -> matcher -> output.
 
-Tinerea lor separate de logica ajuta la doua lucruri:
-  1. matcher.py poate fi testat cu obiecte RawSite construite manual in
-     tests/, fara sa faci request-uri HTTP reale.
-  2. daca vrei sa cachezi crawl-ul brut si sa rulezi matcher-ul de mai
-     multe ori (ex: dupa ce mai adaugi fingerprint-uri), poti (de)serializa
-     RawSite fara sa mai lovesti reteaua.
+Keeping them separate from the logic helps with two things:
+  1. matcher.py can be tested with RawSite objects built by hand in
+     tests/, without making real HTTP requests.
+  2. the raw crawl can be cached and the matcher re-run many times (e.g.
+     after adding new fingerprints) by (de)serializing RawSite, without
+     hitting the network again.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class DnsRecords:
 
 @dataclass
 class RawSite:
-    """Tot ce am reusit sa culegem despre un domeniu, inainte de detectie."""
+    """Everything collected about a domain, before detection."""
 
     domain: str
     final_url: Optional[str] = None
@@ -36,29 +36,29 @@ class RawSite:
     cookies: dict[str, str] = field(default_factory=dict)
     redirect_chain: list[str] = field(default_factory=list)
     dns: DnsRecords = field(default_factory=DnsRecords)
-    error: Optional[str] = None                                # motivul esecului, daca a esuat
+    error: Optional[str] = None                                # failure reason, if the fetch failed
     fetch_ms: Optional[int] = None
-    # DECIZIE (raspuns la "cum aducem numarul mai aproape de 477"): multe
-    # tehnologii nu apar pe homepage (recaptcha pe /contact, ecommerce pe
-    # /shop, comentarii pe /blog etc.) - in loc de headless browser (cost
-    # mare, ROI mic masurat pe acest set - vezi README), crawlem cateva
-    # pagini interne suplimentare de pe acelasi domeniu si le pastram aici.
+    # DECISION (how to get closer to 477): many technologies don't show up
+    # on the homepage (reCAPTCHA on /contact, ecommerce on /shop, comments
+    # on /blog, etc.). Instead of a headless browser (high cost, low ROI
+    # measured on this dataset - see README), we crawl a few extra internal
+    # pages from the same domain and keep them here.
     extra_pages: list["RawSite"] = field(default_factory=list)
 
 
 @dataclass
 class Evidence:
-    """O singura dovada concreta pentru o detectie (cerinta explicita din task)."""
+    """A single concrete piece of proof for a detection (explicit task requirement)."""
 
-    signal_type: str      # "header" | "html" | "script_src" | "cookie" | "meta" | "dns_cname" | "dns_mx" | "dns_txt" | "css"
-    pattern: str           # regex-ul / cheia care a facut match
-    matched_value: str     # fragmentul real din raspuns care a declansat match-ul (trunchiat)
+    signal_type: str      # "header" | "html" | "script_src" | "cookie" | "meta" | "dns_cname" | "dns_mx" | "dns_txt" | "dns_ns" | "dom" | "implied"
+    pattern: str           # the regex / key that matched
+    matched_value: str     # the actual fragment of the response that triggered the match (truncated)
 
 
 @dataclass
 class Detection:
     technology: str
     categories: list[str]
-    confidence: float          # 0..1, vezi matcher.py pentru cum se calculeaza
+    confidence: float          # 0..1, see matcher.py for how it's computed
     evidence: list[Evidence] = field(default_factory=list)
     version: Optional[str] = None

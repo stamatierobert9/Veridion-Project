@@ -1,8 +1,9 @@
 """
-Scrie rezultatele in formatele cerute de task: JSON (structurat, cu dovezi)
-si un CSV "flat" (usor de deschis in Excel/Sheets, un rand per pereche
-domeniu-tehnologie - util cand vrei sa numeri rapid cate tehnologii unice
-ai gasit in total, ca sa te compari cu cele 477 mentionate in task).
+Writes the results in the formats the task asks for: JSON (structured,
+with evidence) and a "flat" CSV (easy to open in Excel/Sheets, one row per
+domain-technology pair - handy for quickly counting how many unique
+technologies were found in total, to compare against the 477 mentioned in
+the task).
 """
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ def write_results(results: dict[str, list[Detection]]) -> None:
 
     print(f"[output] {config.RESULTS_JSON}")
     print(f"[output] {config.RESULTS_CSV}")
-    print(f"[summary] domenii procesate: {len(results)}")
-    print(f"[summary] tehnologii unice gasite (in tot setul): {total_unique_techs}  (target Veridion: 477)")
-    print(f"[summary] total detectii (domeniu, tehnologie): {total_detections}")
-    print(f"[summary] domenii cu 0 tehnologii detectate: {domains_with_zero}")
+    print(f"[summary] domains processed: {len(results)}")
+    print(f"[summary] unique technologies found (across the whole set): {total_unique_techs}  (Veridion target: 477)")
+    print(f"[summary] total detections (domain, technology): {total_detections}")
+    print(f"[summary] domains with 0 technologies detected: {domains_with_zero}")

@@ -1,18 +1,9 @@
 """
-Skeleton de teste pentru matcher.py.
+Tests for matcher.py.
 
-Ideea: nu vrei sa faci request-uri HTTP reale in teste (lent, fragil,
-depinde de internet). In loc de asta, construiesti RawSite-uri sintetice
-cu exact semnalele pe care vrei sa le testezi si verifici ca matcher-ul
-le prinde.
-
-Completeaza-le pe masura ce scrii logica din matcher.py. Cateva cazuri
-pe care ar trebui sa le acoperi:
-  - un header care se potriveste unei tehnologii cunoscute (ex: server: cloudflare)
-  - un cookie caracteristic (ex: __cfduid, PHPSESSID)
-  - un <meta name="generator" content="WordPress 6.4"> in HTML
-  - un site fara nicio potrivire -> lista goala, nu crash
-  - un site cu site.error setat -> lista goala, fara sa incerce sa parseze HTML gol
+No real HTTP requests here (slow, flaky, internet-dependent) - instead we
+build synthetic RawSite objects with exactly the signals we want to test
+and check that the matcher picks them up.
 """
 from src.fingerprints import load_technologies
 from src.matcher import detect_technologies
@@ -31,6 +22,3 @@ def test_error_site_returns_empty():
     site = RawSite(domain="example.com", error="timeout")
     result = detect_technologies(site, technologies)
     assert result == []
-
-
-# TODO(Robert): adauga teste pentru cazurile de mai sus din docstring

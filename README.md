@@ -1,4 +1,4 @@
-# Veridion — Website Technologies Scraper (Deeptech Engineer Intern challenge)
+# Veridion — Website Technologies Scraper (SW Engineer Intern challenge)
 
 A pipeline that crawls a list of domains and identifies which web technologies
 each one uses, with concrete evidence attached to every detection.
@@ -206,50 +206,47 @@ structured JSON, the flat CSV, and prints the final summary counts.
 Produced with the full webappanalyzer database (7,596 technologies) via
 `python scripts/run.py` against the 200 domains in `data/domains.csv`.
 
-### Interpretarea mea a rezultatului
+### My interpretation of the result
 
-Diferența de ~177 de tehnologii între cele 300 găsite de scriptul static și
-targetul de 477 provine, cel mai probabil, din absența unui motor de
-execuție JavaScript (headless browser) și din metodele diferite de
-agregare și deducție a datelor. Fără a evalua pagina post-încărcare,
-crawler-ul actual este orb la orice resursă care nu există în documentul
-HTML inițial.
+The ~177-technology gap between the 300 found by the static crawler and the
+477 target most likely comes from the lack of a JavaScript execution
+engine (headless browser) and from different ways of aggregating and
+inferring data. Without evaluating the page after it loads, the current
+crawler is blind to any resource that isn't in the initial HTML document.
 
-**Categorii de tehnologii probabil ratate**
+**Technology categories most likely missed**
 
-| Categorie | Motivul lipsurilor în crawler-ul static | Exemple frecvente |
+| Category | Why the static crawler misses it | Common examples |
 |---|---|---|
-| Trackere & widget-uri | Sunt încărcate asincron prin JS târziu în ciclul de viață al paginii, adesea injectate abia după interacțiunea utilizatorului sau prin tag managere. | Intercom, Hotjar, Meta Pixel, OneTrust (Consent) |
-| Biblioteci UI (ecosistem SPA) | DOM-ul static returnează un container gol (ex: `<div id="root"></div>`); componentele sunt generate exclusiv client-side de framework-uri. | Material-UI, styled-components, Redux, Zustand |
-| Sisteme de plată & API-uri | Sunt inițializate dinamic pe client prin scripturi third-party asincrone, lăsând puține urme în structura de bază. | Stripe Elements, Braintree, PayPal Checkout |
-| Plugin-uri de e-commerce / CMS | Extensiile injectează funcționalități prin bundle-uri JS minificate sau iframe-uri care pot fi identificate sigur doar în DOM-ul final, randat. | Plugin-uri specifice WooCommerce, module Shopify |
+| Trackers & widgets | Loaded asynchronously via JS late in the page lifecycle, often injected only after user interaction or through tag managers. | Intercom, Hotjar, Meta Pixel, OneTrust (Consent) |
+| UI libraries (SPA ecosystem) | The static DOM is an empty container (e.g. `<div id="root"></div>`); components are generated client-side by the framework. | Material-UI, styled-components, Redux, Zustand |
+| Payment systems & APIs | Initialized dynamically on the client by async third-party scripts, leaving few traces in the base markup. | Stripe Elements, Braintree, PayPal Checkout |
+| E-commerce / CMS plugins | Extensions inject functionality through minified JS bundles or iframes that can only be reliably identified in the final, rendered DOM. | Specific WooCommerce plugins, Shopify apps |
 
-**Impactul metodologiei de numărare**
+**How counting methodology affects the number**
 
-Modul în care Veridion definește o "tehnologie unică" poate crește rapid
-numărul față de o abordare strictă de deduplicare. Dacă aș avea ocazia să
-discut rezultatele, merită ridicate următoarele semne de întrebare:
+How Veridion defines a "unique technology" can push the count up quickly
+compared to a strict deduplication approach. If I get to discuss the
+results, these are the questions worth raising:
 
-- Granularitatea versiunilor: sunt Google Analytics Universal și GA4
-  numărate ca două tehnologii distincte? Tratarea versiunilor majore ca
-  intrări separate umflă semnificativ cifrele.
-- Adâncimea arborelui de deducții (`implies`): în timp ce scriptul meu
-  deduce logic PHP din prezența WordPress, un motor agresiv ar putea
-  folosi lanțuri mult mai lungi (ex: detectează un modul specific ->
-  deduce Apache -> deduce un mediu de rulare Linux).
-- Sub-componente ale framework-urilor: dacă este detectat Next.js,
-  motorul lor raportează automat și React, Node.js și Webpack ca
-  tehnologii separate găsite pe același domeniu?
-- Platforme gazdă și WAF-uri: domeniile mici construite pe site-builder-uri
-  (Weebly, Wix) sau blocate în spatele paginilor de Cloudflare challenge
-  pot raporta masiv stiva de infrastructură a gazdei (ex: Nginx, Express,
-  React-ul folosit de Weebly) în loc de tehnologiile vizate de site-ul
-  propriu-zis.
+- Version granularity: are Google Analytics Universal and GA4 counted as
+  two distinct technologies? Treating major versions as separate entries
+  inflates the numbers significantly.
+- Depth of the inference tree (`implies`): while my script infers PHP from
+  WordPress, a more aggressive engine might follow much longer chains
+  (e.g. detects a specific module -> infers Apache -> infers a Linux
+  runtime).
+- Framework sub-components: if Next.js is detected, does their engine
+  automatically report React, Node.js and Webpack as separate technologies
+  on the same domain?
+- Host platforms and WAFs: small domains built on site builders (Weebly,
+  Wix) or stuck behind Cloudflare challenge pages may report the host's
+  infrastructure stack (e.g. Nginx, Express, the React used by Weebly)
+  instead of the technologies of the site itself.
 
-Această analiză arată clar că un crawler static este excelent pentru
-detectarea eficientă a infrastructurii backend, serverelor web și
-CMS-urilor de bază, dar un proces de crawling dinamic este esențial pentru
-ecosistemul modern de marketing și frontend.
+This analysis shows that a static crawler is great for efficiently
+detecting backend infrastructure, web servers and core CMSs, but dynamic
+crawling is essential for the modern marketing and frontend ecosystem.
 
 ## Known issues and how I'd address them
 

@@ -1,12 +1,12 @@
 """
-Crawler async: ia un domeniu, incearca https apoi http, urmareste
-redirect-urile si intoarce un RawSite cu tot ce a putut culege.
+Async crawler: takes a domain, tries https then http, follows redirects and
+returns a RawSite with everything it managed to collect.
 
-De ce httpx si nu requests: httpx are un client async nativ (AsyncClient),
-ceea ce ne permite sa lansam N cereri concurente cu un singur event loop,
-in loc sa deschidem N thread-uri. Pentru 200 de domenii diferenta e mica,
-dar arhitectura asta e cea care scaleaza spre milioane de domenii
-(vezi README, sectiunea de scalare).
+Why httpx and not requests: httpx has a native async client (AsyncClient),
+which lets us run N concurrent requests on a single event loop instead of
+opening N threads. For 200 domains the difference is small, but this is
+the architecture that scales towards millions of domains (see README,
+scaling section).
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ _LINK_RE = re.compile(r'<a[^>]+href=["\']([^"\'#][^"\']*)["\']', re.IGNORECASE)
 
 
 def _registered_domain(host: str) -> str:
-    """www.example.co.uk -> example.co.uk (foloseste lista publica de sufixe, nu doar ultimele 2 segmente)."""
+    """www.example.co.uk -> example.co.uk (uses the public suffix list, not just the last 2 labels)."""
     ext = tldextract.extract(host)
     return f"{ext.domain}.{ext.suffix}" if ext.suffix else ext.domain
 
@@ -44,11 +44,11 @@ def _rank_internal_link(url: str) -> int:
 
 def _extract_internal_links(html: str, base_url: str, registered_domain: str) -> list[str]:
     """
-    Extrage linkuri catre alte pagini de pe ACELASI domeniu (nu externe),
-    prioritizate dupa cuvinte cheie relevante (contact/shop/blog etc,
-    vezi config.INTERNAL_LINK_KEYWORDS) - astea sunt paginile unde apar cel
-    mai des tehnologii care nu se vad pe homepage (formulare -> reCAPTCHA,
-    shop -> platforma de ecommerce, blog -> comentarii/embed-uri).
+    Extracts links to other pages on the SAME domain (not external ones),
+    prioritized by relevant keywords (contact/shop/blog etc., see
+    config.INTERNAL_LINK_KEYWORDS) - these are the pages where technologies
+    that aren't visible on the homepage show up most often (forms ->
+    reCAPTCHA, shop -> ecommerce platform, blog -> comments/embeds).
     """
     seen: set[str] = set()
     links: list[str] = []
@@ -61,7 +61,7 @@ def _extract_internal_links(html: str, base_url: str, registered_domain: str) ->
         if parsed.scheme not in ("http", "https"):
             continue
         if _registered_domain(parsed.netloc) != registered_domain:
-            continue  # link extern - ne intereseaza doar acest domeniu
+            continue  # external link - we only care about this domain
         absolute = absolute.split("#")[0]
         if absolute in seen or absolute == base_url:
             continue
@@ -92,12 +92,12 @@ async def _fetch_once(client: httpx.AsyncClient, url: str) -> httpx.Response:
 
 async def fetch_domain(client: httpx.AsyncClient, domain: str) -> RawSite:
     """
-    Incearca https://domain, apoi https://www.domain, apoi http://domain.
-    Se opreste la primul raspuns valid (status < 500).
+    Tries https://domain, then https://www.domain, then http://domain.
+    Stops at the first valid response (status < 500).
 
-    NOTA pt tine: aici e un loc bun de imbunatatit - momentan nu distingem
-    intre "domeniul chiar nu raspunde" si "e blocat de un WAF/Cloudflare
-    challenge page". Vezi README, debate topic #1.
+    Known limitation: we don't currently distinguish between "the domain
+    really doesn't respond" and "it's behind a WAF/Cloudflare challenge
+    page". See README, "Known issues".
     """
     candidates = [f"https://{domain}", f"https://www.{domain}", f"http://{domain}"]
     last_error = None
@@ -106,11 +106,11 @@ async def fetch_domain(client: httpx.AsyncClient, domain: str) -> RawSite:
     for url in candidates:
         try:
             resp = await _fetch_once(client, url)
-        except Exception as exc:  # noqa: BLE001 - vrem sa incercam urmatorul candidat oricum
-            # DECIZIE: multe exceptii httpx (SSL, connection refused) au
-            # str(exc) gol - fara tipul exceptiei, ajungi cu "unknown error"
-            # in log, ceea ce nu-ti spune nimic util cand vrei sa explici in
-            # README de ce anume au esuat cateva domenii constant.
+        except Exception as exc:  # noqa: BLE001 - we want to try the next candidate regardless
+            # DECISION: many httpx exceptions (SSL, connection refused) have
+            # an empty str(exc) - without the exception type you end up with
+            # "unknown error" in the log, which tells you nothing useful when
+            # you want to explain why some domains consistently fail.
             detail = str(exc) or repr(exc)
             last_error = f"{type(exc).__name__}: {detail}"
             continue
@@ -148,10 +148,10 @@ async def fetch_domain(client: httpx.AsyncClient, domain: str) -> RawSite:
 
 async def _fetch_extra_pages(client: httpx.AsyncClient, domain: str, base_url: str, homepage_html: str) -> list[RawSite]:
     """
-    Incearca pana la INTERNAL_LINK_CANDIDATES_TO_TRY linkuri interne
-    (prioritizate dupa cuvinte cheie) si opreste-te dupa ce ai reusit
-    EXTRA_PAGES_PER_DOMAIN pagini valide. Fiecare esec (404, timeout, etc.)
-    e ignorat silentios - e normal ca nu toate linkurile "ghicite" sa existe.
+    Tries up to INTERNAL_LINK_CANDIDATES_TO_TRY internal links (prioritized
+    by keyword) and stops once EXTRA_PAGES_PER_DOMAIN valid pages have been
+    fetched. Each failure (404, timeout, etc.) is silently ignored - it's
+    normal for some of the "guessed" links not to exist.
     """
     registered = _registered_domain(urlparse(base_url).netloc)
     candidates = _extract_internal_links(homepage_html, base_url, registered)
@@ -162,17 +162,17 @@ async def _fetch_extra_pages(client: httpx.AsyncClient, domain: str, base_url: s
             break
         try:
             resp = await _fetch_once(client, link)
-        except Exception:  # noqa: BLE001 - o pagina interna esuata nu trebuie sa opreasca restul
+        except Exception:  # noqa: BLE001 - one failed internal page shouldn't stop the rest
             continue
         if resp.status_code >= 400:
             continue
 
-        # DECIZIE: validam si domeniul FINAL (dupa redirect), nu doar linkul
-        # initial. Am gasit domenii (ex: familybroker.cz) cu linkuri de spam
-        # injectate care redirectioneaza catre infrastructura de ad-fraud
-        # complet straina (ex: letsgoto.pro, afftopbrand.com) - fara acest
-        # check, am fi atribuit gazdei originale tehnologiile detectate pe
-        # domeniul strain catre care a redirectionat.
+        # DECISION: we also validate the FINAL domain (after redirects), not
+        # just the initial link. I found domains (e.g. familybroker.cz) with
+        # injected spam links that redirect to completely unrelated ad-fraud
+        # infrastructure (e.g. letsgoto.pro, afftopbrand.com) - without this
+        # check, we'd attribute the technologies detected on the foreign
+        # domain to the original host.
         final_registered = _registered_domain(urlparse(str(resp.url)).netloc)
         if final_registered != registered:
             continue
@@ -196,25 +196,23 @@ async def _fetch_extra_pages(client: httpx.AsyncClient, domain: str, base_url: s
     return extra_pages
 
 
-# Plasa de siguranta: indiferent cate retry-uri/candidati incearca
-# fetch_domain() intern, un singur domeniu nu are voie sa blocheze la
-# infinit tot batch-ul. httpx.Timeout limiteaza fiecare request individual,
-# dar am vazut in practica (vezi README, debate topic #1) ca unele gazde
-# raspund suficient de "lent si ciudat" incat suma retry-urilor + candidatilor
-# (https -> www -> http) poate depasi mult timeout-ul per-request. De-aia
-# punem si un wait_for global per domeniu.
+# Safety net: no matter how many retries/candidates fetch_domain() tries
+# internally, a single domain must not be allowed to block the whole batch
+# forever. httpx.Timeout caps each individual request, but in practice
+# (see README, "Known issues") some hosts respond "slowly and strangely"
+# enough that the sum of retries + candidates (https -> www -> http) can
+# far exceed the per-request timeout. Hence a global wait_for per domain.
 HARD_TIMEOUT_PER_DOMAIN_SECONDS = config.HTTP_TIMEOUT_SECONDS * 4
 
 
-# DECIZIE: distingem domenii "moarte" (nu exista DNS deloc pentru ele -
-# nu are sens sa reincercam) de esecuri tranzitorii (5xx, timeout, conexiune
-# refuzata la momentul respectiv). Am verificat manual cateva domenii care
-# esuau constant (vezi README, debate topic #1): ecolab.com si
-# sindacatobadanti.it au raspuns cu 504/503 in crawl dar functionau normal
-# la un curl manual la cateva minute distanta - server-side flakiness, nu
-# o problema reala a domeniului. In schimb domenii ca wglchurch.com nu au
-# NICIUN record DNS (`dig +short A` gol) - alea sunt moarte de-a binelea si
-# reincercarea lor doar pierde timp.
+# DECISION: distinguish "dead" domains (no DNS at all - no point retrying)
+# from transient failures (5xx, timeout, connection refused at that
+# moment). I manually checked a few domains that kept failing (see README,
+# "Known issues"): ecolab.com and sindacatobadanti.it returned 504/503
+# during the crawl but worked fine with a manual curl a few minutes later -
+# server-side flakiness, not a real problem with the domain. Domains like
+# wglchurch.com, on the other hand, have NO DNS record at all (`dig +short
+# A` is empty) - those are truly dead and retrying them only wastes time.
 _DEAD_DOMAIN_ERROR_MARKERS = (
     "nodename nor servname",  # macOS/BSD getaddrinfo
     "name or service not known",  # Linux getaddrinfo
@@ -242,7 +240,7 @@ async def fetch_all(domains: list[str]) -> list[RawSite]:
         timeout=timeout,
         headers=headers,
         max_redirects=config.MAX_REDIRECTS,
-        verify=False,  # multe domenii mici au certificate expirate/self-signate; nu vrem sa le pierdem din cauza asta
+        verify=False,  # many small domains have expired/self-signed certificates; we don't want to lose them because of that
     ) as client:
 
         async def bound_fetch(domain: str) -> RawSite:
@@ -252,7 +250,7 @@ async def fetch_all(domains: list[str]) -> list[RawSite]:
                         fetch_domain(client, domain), timeout=HARD_TIMEOUT_PER_DOMAIN_SECONDS
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("hard timeout (%ss) pe %s - il marchez ca esuat si continui", HARD_TIMEOUT_PER_DOMAIN_SECONDS, domain)
+                    logger.warning("hard timeout (%ss) on %s - marking it as failed and moving on", HARD_TIMEOUT_PER_DOMAIN_SECONDS, domain)
                     return RawSite(domain=domain, error=f"hard timeout after {HARD_TIMEOUT_PER_DOMAIN_SECONDS}s")
 
         async def run_pass(target_domains: list[str]) -> list[RawSite]:
@@ -263,7 +261,7 @@ async def fetch_all(domains: list[str]) -> list[RawSite]:
                 pass_results.append(site)
                 done += 1
                 if done % 25 == 0 or done == len(target_domains):
-                    logger.info("HTTP: %d/%d domenii procesate", done, len(target_domains))
+                    logger.info("HTTP: %d/%d domains processed", done, len(target_domains))
             return pass_results
 
         results = await run_pass(domains)
@@ -274,7 +272,7 @@ async def fetch_all(domains: list[str]) -> list[RawSite]:
         ]
         if retryable:
             logger.info(
-                "%d domenii au esuat tranzitoriu (nu par moarte definitiv) - reincerc o data dupa o pauza scurta: %s",
+                "%d domains failed transiently (they don't look permanently dead) - retrying once after a short pause: %s",
                 len(retryable), ", ".join(retryable),
             )
             await asyncio.sleep(config.RETRY_PASS_DELAY_SECONDS)
@@ -284,6 +282,6 @@ async def fetch_all(domains: list[str]) -> list[RawSite]:
                 if not site.error:
                     recovered += 1
                 by_domain[site.domain] = site
-            logger.info("reincercare: %d/%d domenii recuperate", recovered, len(retryable))
+            logger.info("retry: %d/%d domains recovered", recovered, len(retryable))
 
         return [by_domain[d] for d in domains]

@@ -1,19 +1,19 @@
 """
-Semnale DNS - foarte ieftine de colectat (un query UDP, nu un request HTTP
-complet) si surprinzator de bogate:
+DNS signals - very cheap to collect (one UDP query, not a full HTTP
+request) and surprisingly rich:
 
-  - CNAME-uri dezvaluie hosting-ul gestionat: ex un CNAME catre
-    "shops.myshopify.com" = Shopify, catre "cname.vercel-dns.com" = Vercel,
-    catre "ghs.googlehosted.com" = Google Sites.
-  - Recordurile MX arata furnizorul de email: "aspmx.l.google.com" = Google
+  - CNAMEs reveal managed hosting: e.g. a CNAME to "shops.myshopify.com" =
+    Shopify, to "cname.vercel-dns.com" = Vercel, to "ghs.googlehosted.com" =
+    Google Sites.
+  - MX records show the email provider: "aspmx.l.google.com" = Google
     Workspace, "*.protection.outlook.com" = Microsoft 365.
-  - TXT records contin adesea verificari de domeniu pentru terte servicii:
-    google-site-verification=..., facebook-domain-verification=...,
+  - TXT records often contain domain verifications for third-party
+    services: google-site-verification=..., facebook-domain-verification=...,
     MS=..., stripe-verification=..., v=spf1 include:sendgrid.net ...
 
-Aceste semnale sunt complementare celor din HTML/headers - multe tehnologii
-de genul "furnizor de email" sau "platforma de hosting" nu apar deloc in
-pagina web, dar apar clar in DNS.
+These signals complement the ones from HTML/headers - many technologies
+like "email provider" or "hosting platform" don't show up in the web page
+at all, but are clearly visible in DNS.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ async def _query(resolver: dns.asyncresolver.Resolver, domain: str, rtype: str) 
     try:
         answer = await resolver.resolve(domain, rtype, lifetime=config.DNS_TIMEOUT_SECONDS)
         return [r.to_text().strip('"') for r in answer]
-    except (dns.exception.DNSException, Exception):  # noqa: BLE001 - lipsa unui record e normala, nu e o eroare
+    except (dns.exception.DNSException, Exception):  # noqa: BLE001 - a missing record is normal, not an error
         return []
 
 
@@ -66,6 +66,6 @@ async def fetch_all_dns(domains: list[str]) -> dict[str, DnsRecords]:
         results[domain] = records
         done += 1
         if done % 50 == 0 or done == len(domains):
-            logger.info("DNS: %d/%d domenii procesate", done, len(domains))
+            logger.info("DNS: %d/%d domains processed", done, len(domains))
 
     return results
